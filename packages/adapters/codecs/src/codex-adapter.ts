@@ -141,6 +141,11 @@ export class CodexAdapter extends BaseAgentAdapter {
     if (options.model) {
       args.push('--model', options.model);
     }
+    if (options.thinkingEffort) {
+      // Codex has no "max"; xhigh is its highest reasoning effort.
+      const effort = options.thinkingEffort === 'max' ? 'xhigh' : options.thinkingEffort;
+      args.push('-c', `model_reasoning_effort="${effort}"`);
+    }
 
     if (options.approvalMode === 'yolo') {
       // Codex removed --full-auto; this is its non-interactive no-approval mode.

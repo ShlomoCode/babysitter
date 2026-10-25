@@ -166,6 +166,17 @@ describe('ClaudeAdapter', () => {
       expect(result.args).toContain('--print');
     });
 
+    it('passes the thinking effort', () => {
+      const result = adapter.buildSpawnArgs({
+        agent: 'claude',
+        prompt: 'Test', nonInteractive: true,
+        thinkingEffort: 'medium',
+      });
+
+      const i = result.args.indexOf('--effort');
+      expect(result.args[i + 1]).toBe('medium');
+    });
+
     it('includes model flag when specified', () => {
       const result = adapter.buildSpawnArgs({
         agent: 'claude',

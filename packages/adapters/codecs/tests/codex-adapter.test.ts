@@ -103,6 +103,17 @@ describe('CodexAdapter', () => {
       expect(result.args).toContain('o4-mini');
     });
 
+    it('maps the thinking effort to model_reasoning_effort', () => {
+      const result = adapter.buildSpawnArgs({
+        agent: 'codex',
+        prompt: 'Test', nonInteractive: true,
+        thinkingEffort: 'max',
+      });
+
+      // Codex has no "max"; xhigh is its highest level.
+      expect(result.args).toContain('model_reasoning_effort="xhigh"');
+    });
+
     it('bypasses approvals for yolo mode', () => {
       const result = adapter.buildSpawnArgs({
         agent: 'codex',

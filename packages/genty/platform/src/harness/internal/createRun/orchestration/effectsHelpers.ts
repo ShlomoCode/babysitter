@@ -5,7 +5,7 @@
 
 import { statSync } from "node:fs";
 import { invokeHarness } from "../../../invoker";
-import type { StreamingOutputOptions } from "../../../types";
+import type { HarnessInvokeOptions, StreamingOutputOptions } from "../../../types";
 import {
   WORKER_TIMEOUT_MS,
   compressInternalHarnessPrompt,
@@ -80,10 +80,22 @@ export async function invokePromptEffect(
   };
 }
 
-function taskExecutionModel(action: EffectAction): string | undefined {
+type ThinkingEffort = NonNullable<HarnessInvokeOptions["thinkingEffort"]>;
+const THINKING_EFFORTS: readonly string[] = ["low", "medium", "high", "max"];
+
+function taskExecution(
+  action: EffectAction,
+): { model?: string; timeout?: number; thinkingEffort?: ThinkingEffort } {
   const taskDef = action.taskDef as Record<string, unknown> | undefined;
   const execution = taskDef?.execution as Record<string, unknown> | undefined;
-  return typeof execution?.model === "string" ? execution.model : undefined;
+  const timeout = execution?.timeoutMs ?? execution?.timeout;
+  return {
+    model: typeof execution?.model === "string" ? execution.model : undefined,
+    timeout: typeof timeout === "number" ? timeout : undefined,
+    thinkingEffort: THINKING_EFFORTS.includes(execution?.effort as string)
+      ? (execution?.effort as ThinkingEffort)
+      : undefined,
+  };
 }
 
 export async function invokeAgentHarness(
@@ -92,10 +104,13 @@ export async function invokeAgentHarness(
 ): Promise<ResolveEffectResult> {
   // A delegated task is one-shot: nonInteractive closes the harness's stdin.
   // The task's own execution.model wins over the run-level model.
+  const execution = taskExecution(action);
   const result = await invokeHarness(taskHarness, {
     prompt: compressInternalHarnessPrompt(prompt, null, "agent"),
     workspace: options.workspace,
-    model: taskExecutionModel(action) ?? options.model,
+    model: execution.model ?? options.model,
+    timeout: execution.timeout,
+    thinkingEffort: execution.thinkingEffort,
     nonInteractive: true,
     streaming: options.streaming,
   });

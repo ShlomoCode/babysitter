@@ -19,6 +19,7 @@ export interface AgentMuxRunOptions {
   agent: string;
   prompt: string;
   model?: string;
+  thinkingEffort?: "low" | "medium" | "high" | "max";
   cwd?: string;
   sessionId?: string;
   timeout?: number;

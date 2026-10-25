@@ -106,6 +106,7 @@ export async function invokeViaAgentMux(
     agent: adapterName,
     prompt: options.prompt,
     model: options.model,
+    thinkingEffort: options.thinkingEffort,
     cwd: options.workspace,
     timeout: options.timeout,
     sessionId: options.sessionId,

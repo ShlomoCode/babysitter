@@ -110,6 +110,8 @@ export interface HarnessInvokeOptions {
   model?: string;
   /** Maximum execution time in milliseconds. */
   timeout?: number;
+  /** Thinking effort level, for harnesses that support one. */
+  thinkingEffort?: "low" | "medium" | "high" | "max";
   /** Whether to use RPC/structured-output mode. */
   rpc?: boolean;
   /** Additional environment variables passed to the child process. */

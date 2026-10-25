@@ -158,6 +158,9 @@ export class ClaudeAdapter extends BaseAgentAdapter {
     if (options.model) {
       args.push('--model', options.model);
     }
+    if (options.thinkingEffort) {
+      args.push('--effort', options.thinkingEffort);
+    }
 
     // Session resume. `--resume` is the reconnect flag; `--session-id` is new-session.
     // Heuristic: forkSessionId indicates a fork → new session-id; sessionId without fork → resume.
