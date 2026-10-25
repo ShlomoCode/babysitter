@@ -105,6 +105,39 @@ export async function handleHarnessResumeRun(args: SessionResumeArgs): Promise<n
     writeVerboseBlock(verbose, json, label, value, maxChars, outputMode);
   };
 
+  // An explicit run id needs no agent to choose the run. Resume it directly, so
+  // resuming works with an installed CLI harness and no API key.
+  if (args.runId) {
+    const runDir = resolveExistingRunDir(args.runId, {
+      cwd: args.workspace ?? process.cwd(),
+      override: runsDir,
+    });
+    const { run } = await assessRun(runDir);
+    if (run.status === "completed") {
+      if (json) {
+        process.stdout.write(JSON.stringify({ ok: true, runId: run.runId, status: "completed" }) + "\n");
+      }
+      return 0;
+    }
+    // The stored import path is relative to the run directory.
+    const entry = run.entrypoint.importPath;
+    return await handleHarnessCreateRun({
+      processPath: path.isAbsolute(entry) ? entry : path.resolve(run.runDir, entry),
+      prompt: run.prompt,
+      harness: args.harness,
+      workspace: args.workspace,
+      model: args.model,
+      maxIterations: args.maxIterations,
+      runsDir: args.runsDir,
+      json,
+      verbose,
+      interactive: args.interactive,
+      existingRunId: run.runId,
+      existingRunDir: run.runDir,
+      outputMode,
+    });
+  }
+
   // Track whether the agent has triggered a resume (set by the resume tool).
   let resumeTriggered = false;
   let resumeExitCode = 0;
