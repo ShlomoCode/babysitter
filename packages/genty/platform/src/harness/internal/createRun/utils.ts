@@ -86,6 +86,7 @@ export interface OrchestrationProgress {
   maxAttempts?: number;
   elapsedMs?: number;
   effectsResolved?: number;
+  effectsRunning?: number;
   parallelGroupId?: string;
   maxConcurrency?: number;
   tokenEstimate?: number;
@@ -221,10 +222,11 @@ export function resolveTaskHarness(
 
   const meta = action.taskDef?.metadata as Record<string, unknown> | undefined;
   const execution = (action.taskDef as Record<string, unknown> | undefined)?.execution as Record<string, unknown> | undefined;
+  // An explicit execution.harness is a requirement, not a hint: discovery can
+  // miss an installed CLI (a version probe that times out under load), and a
+  // silent fallback would hand the task, and its model, to another CLI.
   if (typeof execution?.harness === "string") {
-    const requestedHarness = normalizeBuiltInHarnessName(execution.harness);
-    const match = discovered.find((h) => h.name === requestedHarness && h.installed);
-    if (match) return match.name;
+    return normalizeBuiltInHarnessName(execution.harness);
   }
 
   const policyHarness = resolvePolicySelectedHarness(action, discovered);

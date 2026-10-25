@@ -383,3 +383,19 @@ describe("harnessUtils", () => {
     });
   });
 });
+
+describe("resolveTaskHarness", () => {
+  const action = (taskDef: Record<string, unknown>, schedulerHints?: Record<string, unknown>) =>
+    ({ effectId: "e", invocationKey: "k", kind: "agent", taskDef, schedulerHints }) as never;
+
+  it("keeps an explicit execution.harness that discovery missed", () => {
+    // A version probe that times out must not hand the task, and its model, to another CLI.
+    const discovered = [{ name: "codex", installed: true, capabilities: [] }] as never;
+    expect(resolveTaskHarness(action({ kind: "agent", execution: { harness: "claude-code" } }), "codex", discovered)).toBe("claude-code");
+  });
+
+  it("falls back to the default when only a preferred harness is missing", () => {
+    const discovered = [{ name: "codex", installed: true, capabilities: [] }] as never;
+    expect(resolveTaskHarness(action({ kind: "agent" }, { preferredHarness: "claude-code" }), "codex", discovered)).toBe("codex");
+  });
+});
