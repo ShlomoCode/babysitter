@@ -120,6 +120,8 @@ export interface HarnessInvokeOptions {
   signal?: AbortSignal;
   /** When true, run the child process with a minimal environment (only PATH, HOME, NODE_PATH + explicit env overrides). */
   isolated?: boolean;
+  /** One-shot run: no interactive session, stdin closed after the prompt, no approval prompts. */
+  nonInteractive?: boolean;
 }
 
 /** Result returned after a harness CLI invocation completes. */

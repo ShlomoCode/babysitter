@@ -154,6 +154,18 @@ describe('ClaudeAdapter', () => {
       expect(result.closeStdinAfterSpawn).toBe(false);
     });
 
+    it('omits stream-json-only flags in one-shot mode', () => {
+      const result = adapter.buildSpawnArgs({
+        agent: 'claude',
+        prompt: 'Test', nonInteractive: true,
+      });
+
+      // Claude Code rejects --replay-user-messages without --input-format=stream-json.
+      expect(result.args).not.toContain('--replay-user-messages');
+      expect(result.args).not.toContain('--input-format');
+      expect(result.args).toContain('--print');
+    });
+
     it('includes model flag when specified', () => {
       const result = adapter.buildSpawnArgs({
         agent: 'claude',

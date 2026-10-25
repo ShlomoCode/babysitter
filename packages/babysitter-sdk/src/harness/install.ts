@@ -106,18 +106,30 @@ let _agentMuxOverride:
   | { createClient: (opts: Record<string, unknown>) => AgentMuxClientLike }
   | undefined;
 
-function requireAmux(): { createClient: (opts: Record<string, unknown>) => AgentMuxClientLike } {
+type AmuxModule = {
+  createClient: (opts: Record<string, unknown>) => AgentMuxClientLike;
+  registerBuiltInAdapters?: (client: AgentMuxClientLike) => void;
+};
+
+function requireAmux(): AmuxModule {
   if (_agentMuxOverride) {
     return _agentMuxOverride;
   }
   // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
-  const mod: { createClient: (opts: Record<string, unknown>) => AgentMuxClientLike } = require("@a5c-ai/adapters");
+  const mod: AmuxModule = require("@a5c-ai/adapters");
   return mod;
 }
 
 async function getAgentMuxClient(): Promise<AgentMuxClientLike> {
   if (!_clientPromise) {
-    _clientPromise = Promise.resolve(requireAmux().createClient({}));
+    _clientPromise = Promise.resolve().then(() => {
+      const mod = requireAmux();
+      const client = mod.createClient({});
+      // createClient() starts with an empty registry; without the built-ins,
+      // installed() is empty and every harness is reported as not installed.
+      mod.registerBuiltInAdapters?.(client);
+      return client;
+    });
   }
   return _clientPromise;
 }

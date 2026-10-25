@@ -143,7 +143,8 @@ export class CodexAdapter extends BaseAgentAdapter {
     }
 
     if (options.approvalMode === 'yolo') {
-      args.push('--full-auto');
+      // Codex removed --full-auto; this is its non-interactive no-approval mode.
+      args.push('--dangerously-bypass-approvals-and-sandbox');
     }
 
     return {

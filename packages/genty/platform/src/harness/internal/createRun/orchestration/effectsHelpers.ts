@@ -80,13 +80,23 @@ export async function invokePromptEffect(
   };
 }
 
+function taskExecutionModel(action: EffectAction): string | undefined {
+  const taskDef = action.taskDef as Record<string, unknown> | undefined;
+  const execution = taskDef?.execution as Record<string, unknown> | undefined;
+  return typeof execution?.model === "string" ? execution.model : undefined;
+}
+
 export async function invokeAgentHarness(
   action: EffectAction, taskHarness: string, prompt: string,
   options: { workspace?: string; model?: string; streaming?: import("../../../types").StreamingOutputOptions },
 ): Promise<ResolveEffectResult> {
+  // A delegated task is one-shot: nonInteractive closes the harness's stdin.
+  // The task's own execution.model wins over the run-level model.
   const result = await invokeHarness(taskHarness, {
     prompt: compressInternalHarnessPrompt(prompt, null, "agent"),
-    workspace: options.workspace, model: options.model,
+    workspace: options.workspace,
+    model: taskExecutionModel(action) ?? options.model,
+    nonInteractive: true,
     streaming: options.streaming,
   });
   return {

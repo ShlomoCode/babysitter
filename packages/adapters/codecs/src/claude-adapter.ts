@@ -148,8 +148,9 @@ export class ClaudeAdapter extends BaseAgentAdapter {
     args.push('--output-format', 'stream-json');
     args.push('--verbose');
     args.push('--include-partial-messages');
-    args.push('--replay-user-messages');
+    // --replay-user-messages requires stream-json input, so one-shot runs omit it.
     if (interactiveStreamJson) {
+      args.push('--replay-user-messages');
       args.push('--input-format', 'stream-json');
     }
 

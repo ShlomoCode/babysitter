@@ -103,14 +103,15 @@ describe('CodexAdapter', () => {
       expect(result.args).toContain('o4-mini');
     });
 
-    it('sets full-auto for yolo mode', () => {
+    it('bypasses approvals for yolo mode', () => {
       const result = adapter.buildSpawnArgs({
         agent: 'codex',
         prompt: 'Test', nonInteractive: true,
         approvalMode: 'yolo',
       });
 
-      expect(result.args).toContain('--full-auto');
+      expect(result.args).toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(result.args).not.toContain('--full-auto');
     });
 
     it('joins array prompts', () => {

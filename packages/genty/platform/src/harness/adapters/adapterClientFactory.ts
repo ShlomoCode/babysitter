@@ -17,12 +17,17 @@ function hasNodeSqliteBuiltin(): boolean {
   return builtinModules.includes("node:sqlite") || builtinModules.includes("sqlite");
 }
 
-function requireAmux(): { createClient: (options: Record<string, unknown>) => AgentMuxClient } {
+type AmuxModule = {
+  createClient: (options: Record<string, unknown>) => AgentMuxClient;
+  registerBuiltInAdapters?: (client: AgentMuxClient) => void;
+};
+
+function requireAmux(): AmuxModule {
   if (agentMuxOverride) {
     return agentMuxOverride;
   }
   // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
-  const mod: { createClient: (options: Record<string, unknown>) => AgentMuxClient } = require("@a5c-ai/adapters");
+  const mod: AmuxModule = require("@a5c-ai/adapters");
   return mod;
 }
 
@@ -59,11 +64,14 @@ export function getAgentMuxClient(): Promise<AgentMuxClient> {
   }
 
   try {
-    const { createClient } = requireAmux();
-    const client = createClient({
+    const mod = requireAmux();
+    const client = mod.createClient({
       stream: true,
       debug: false,
     });
+    // createClient() starts with an empty registry; without the built-ins,
+    // every run fails with "No adapter registered for agent".
+    mod.registerBuiltInAdapters?.(client);
     cachedClient = client;
     return Promise.resolve(cachedClient);
   } catch (error) {

@@ -138,7 +138,8 @@ export async function invokeViaAgentMux(
   let totalCost = 0;
   let hasError = false;
 
-  for await (const rawEvent of handle.events) {
+  const eventSource = typeof handle.events === "function" ? handle.events() : handle.events;
+  for await (const rawEvent of eventSource) {
     const mapped = mapAmuxEvent(rawEvent);
     if (!mapped) continue;
 
@@ -146,7 +147,8 @@ export async function invokeViaAgentMux(
 
     // Accumulate text deltas
     if (mapped.kind === "text_delta") {
-      const text = mapped.data["text"];
+      // Adapters emit text_delta with `delta` (and `accumulated`), not `text`.
+      const text = mapped.data["text"] ?? mapped.data["delta"];
       if (typeof text === "string") {
         lastMessage += text;
       }

@@ -333,13 +333,12 @@ async function runHarnessCreateRun(
   parsed: HarnessParsedArgs,
   overrides: { interactive?: boolean; planOnly?: boolean; prompt?: string } = {},
 ): Promise<number> {
-  if (parsed.harness && normalizeBuiltInHarnessName(parsed.harness) !== "agent-core") {
-    process.stderr.write(`[genty] --harness ${parsed.harness} ignored — genty always uses agent-core\n`);
-  }
+  // An installed CLI (codex, claude-code) can back the orchestrator session through
+  // resolveAgentCoreBackendForHarness; only agent-core needs an API key.
   return await handleHarnessCreateRun({
     invocationCommand: parsed.command,
     prompt: overrides.prompt ?? parsed.prompt,
-    harness: "agent-core",
+    harness: parsed.harness ?? "agent-core",
     processPath: parsed.processPath,
     workspace: parsed.workspace,
     model: parsed.model,
