@@ -38,8 +38,10 @@ import {
   resolveEffectWithRetry,
 } from "./effects";
 import {
+  createStreamingDispatcher,
   dispatchEffectActions,
   harnessSupportsConcurrentEffects,
+  type EffectDispatchCommit,
 } from "./dispatch";
 import { ensureRunAndMaybeBindFromProcessDefinition } from "../planProcess/runState";
 import { subscribeVerbosePiEvents } from "./verbose";
@@ -145,6 +147,85 @@ export async function runExternalOrchestrationPhase(args: RunOrchestrationPhaseA
         { category: ErrorCategory.Runtime },
       );
     }
+    const dispatcher = createStreamingDispatcher((action) => resolveExternalAction({
+      action,
+      args,
+      state,
+      registerPiSession,
+      shutdownPiSession,
+    }));
+    const commitAction = async ({ action, result: effectResult, startedAt, finishedAt }: EffectDispatchCommit): Promise<void> => {
+      const runHandle = {
+        runId: state.runId ?? "",
+        runDir: state.runDir!,
+        processId: "",
+        status: "running" as const,
+      };
+      await getGlobalRegistry().getOrchestration().postEffectResult(
+        runHandle,
+        action.effectId,
+        {
+          status: assertResolvedStatus(effectResult.status),
+          value: effectResult.value,
+          error: effectResult.error,
+          startedAt,
+          finishedAt,
+        },
+      );
+      const stateDir = state.sessionBound?.stateFile
+        ? path.dirname(state.sessionBound.stateFile)
+        : undefined;
+      const costResult = await buildEffectIndex({ runDir: state.runDir! })
+        .then(computeEffectCosts)
+        .catch(() => undefined);
+      const overlays = await applyPostEffectOrchestrationOverlays({
+        runId: state.runId,
+        runDir: state.runDir,
+        runsDir: args.runsDir ?? path.dirname(state.runDir!),
+        stateDir,
+        sessionId: state.sessionBound?.sessionId,
+        effectCost: costResult && costResult.effects.length > 0
+          ? {
+            totalCostUsd: costResult.totalCostUsd,
+            inputTokens: costResult.effects.reduce((sum, effect) => sum + effect.inputTokens, 0),
+            outputTokens: costResult.effects.reduce((sum, effect) => sum + effect.outputTokens, 0),
+          }
+          : undefined,
+        estimatedStateTokens: Math.ceil(JSON.stringify({
+          iteration: state.iteration,
+          lastEffect: action.effectId,
+          output: effectResult.stdout ?? effectResult.stderr ?? effectResult.value,
+        }).length / 4),
+        compactionConfig: DEFAULT_COMPACTION_CONFIG,
+        effectSummary: {
+          effectId: action.effectId,
+          taskId: action.taskId,
+          kind: action.kind,
+          title: action.taskDef?.title,
+          status: assertResolvedStatus(effectResult.status),
+        },
+      });
+      if (overlays.budgetEnforcement?.paused) {
+        const error = overlays.budgetEnforcement.pauseReason ?? "Session cost budget pause requested";
+        emitProgress(
+          {
+            phase: "2",
+            status: "failed",
+            iteration: state.iteration,
+            runStatus: "failed",
+            error,
+          },
+          args.json,
+          args.verbose,
+          args.outputMode,
+        );
+        throw new BabysitterRuntimeError(
+          "SessionBudgetPaused",
+          error,
+          { category: ErrorCategory.Runtime },
+        );
+      }
+    };
     let consecutiveProcessErrors = 0;
     const runStartTime = Date.now();
     while (state.iteration < args.maxIterations) {
@@ -181,97 +262,45 @@ export async function runExternalOrchestrationPhase(args: RunOrchestrationPhaseA
           args.outputMode,
         );
         const iterationStartTime = Date.now();
-        await dispatchEffectActions({
-          actions: result.nextActions,
-          concurrentEffects:
-            harnessSupportsConcurrentEffects(args.selectedHarnessName, args.discovered) ||
-            actionsRunInSeparateProcesses(result.nextActions, args),
-          resolveAction: (action) => resolveExternalAction({
-            action,
-            args,
-            state,
-            registerPiSession,
-            shutdownPiSession,
-          }),
-          commitAction: async ({ action, result: effectResult, startedAt, finishedAt }) => {
-            const runHandle = {
-              runId: state.runId ?? "",
-              runDir: state.runDir!,
-              processId: "",
-              status: "running" as const,
-            };
-            await getGlobalRegistry().getOrchestration().postEffectResult(
-              runHandle,
-              action.effectId,
-              {
-                status: assertResolvedStatus(effectResult.status),
-                value: effectResult.value,
-                error: effectResult.error,
-                startedAt,
-                finishedAt,
-              },
-            );
-            const stateDir = state.sessionBound?.stateFile
-              ? path.dirname(state.sessionBound.stateFile)
-              : undefined;
-            const costResult = await buildEffectIndex({ runDir: state.runDir! })
-              .then(computeEffectCosts)
-              .catch(() => undefined);
-            const overlays = await applyPostEffectOrchestrationOverlays({
-              runId: state.runId,
-              runDir: state.runDir,
-              runsDir: args.runsDir ?? path.dirname(state.runDir!),
-              stateDir,
-              sessionId: state.sessionBound?.sessionId,
-              effectCost: costResult && costResult.effects.length > 0
-                ? {
-                  totalCostUsd: costResult.totalCostUsd,
-                  inputTokens: costResult.effects.reduce((sum, effect) => sum + effect.inputTokens, 0),
-                  outputTokens: costResult.effects.reduce((sum, effect) => sum + effect.outputTokens, 0),
-                }
-                : undefined,
-              estimatedStateTokens: Math.ceil(JSON.stringify({
-                iteration: state.iteration,
-                lastEffect: action.effectId,
-                output: effectResult.stdout ?? effectResult.stderr ?? effectResult.value,
-              }).length / 4),
-              compactionConfig: DEFAULT_COMPACTION_CONFIG,
-              effectSummary: {
-                effectId: action.effectId,
-                taskId: action.taskId,
-                kind: action.kind,
-                title: action.taskDef?.title,
-                status: assertResolvedStatus(effectResult.status),
-              },
-            });
-            if (overlays.budgetEnforcement?.paused) {
-              const error = overlays.budgetEnforcement.pauseReason ?? "Session cost budget pause requested";
-              emitProgress(
-                {
-                  phase: "2",
-                  status: "failed",
-                  iteration: state.iteration,
-                  runStatus: "failed",
-                  error,
-                },
-                args.json,
-                args.verbose,
-                args.outputMode,
-              );
-              throw new BabysitterRuntimeError(
-                "SessionBudgetPaused",
-                error,
-                { category: ErrorCategory.Runtime },
-              );
-            }
-          },
-        });
+        const concurrentEffects =
+          harnessSupportsConcurrentEffects(args.selectedHarnessName, args.discovered) ||
+          actionsRunInSeparateProcesses(result.nextActions, args);
+        let finished: EffectDispatchCommit[];
+        if (concurrentEffects) {
+          // Start what is not running yet, then record the first effects to
+          // finish and replay the process, so a slow effect never holds back
+          // the next step of another branch.
+          dispatcher.start(result.nextActions);
+          finished = await dispatcher.next();
+          for (const commit of finished) {
+            // A "pending" result means the effect was emitted for the host, not run.
+            if (commit.result.status !== "pending") await commitAction(commit);
+          }
+        } else {
+          finished = [];
+          await dispatchEffectActions({
+            actions: result.nextActions,
+            concurrentEffects: false,
+            resolveAction: (action) => resolveExternalAction({
+              action,
+              args,
+              state,
+              registerPiSession,
+              shutdownPiSession,
+            }),
+            commitAction: async (commit) => {
+              finished.push(commit);
+              await commitAction(commit);
+            },
+          });
+        }
         emitProgress(
           {
             phase: "2",
             status: "iteration-summary",
             iteration: state.iteration,
-            effectsResolved: result.nextActions.length,
+            effectsResolved: finished.length,
+            effectsRunning: dispatcher.size,
             elapsedMs: Date.now() - iterationStartTime,
           },
           args.json,
@@ -280,6 +309,8 @@ export async function runExternalOrchestrationPhase(args: RunOrchestrationPhaseA
         );
         continue;
       }
+      // Effects still running belong to a run that is ending; let their CLIs finish.
+      if (result.status !== "process-error") await dispatcher.drain();
       if (result.status === "completed") {
         await recordExternalRunSummary(state, args, "completed", "Run completed");
         emitProgress(

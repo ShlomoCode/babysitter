@@ -197,3 +197,69 @@ function getDispatchConcurrency(group: IndexedAction[]): number {
       : { maxConcurrency: explicitMaxConcurrency },
   );
 }
+
+export type StreamingDispatcher = {
+  /** Effects started and not yet returned by next(). */
+  readonly size: number;
+  /** Starts every action that is not already running. */
+  start(actions: EffectAction[]): void;
+  /**
+   * Waits until at least one running effect finishes, then returns every
+   * effect that has finished by then. Returns at once when nothing runs.
+   */
+  next(): Promise<EffectDispatchCommit[]>;
+  /** Waits for every running effect, discarding the results. */
+  drain(): Promise<void>;
+};
+
+/**
+ * Dispatches concurrent effects as a stream instead of in waves: the caller records each
+ * effect as soon as it finishes and replays the process, while the others keep
+ * running. A wave would hold every finished effect until the slowest one ends.
+ */
+export function createStreamingDispatcher(
+  resolveAction: (action: EffectAction) => Promise<ResolveEffectResult>,
+): StreamingDispatcher {
+  const running = new Map<string, Promise<EffectDispatchCommit>>();
+  const finished: EffectDispatchCommit[] = [];
+
+  function launch(action: EffectAction): void {
+    const startedAt = new Date().toISOString();
+    const job = resolveAction(action)
+      .catch((error: unknown): ResolveEffectResult => ({
+        status: "error",
+        error: error instanceof Error ? error : new Error(String(error)),
+        stderr: error instanceof Error ? error.message : String(error),
+      }))
+      .then((result) => {
+        const commit = { action, result, startedAt, finishedAt: new Date().toISOString() };
+        finished.push(commit);
+        return commit;
+      });
+    running.set(action.effectId, job);
+  }
+
+  return {
+    get size() {
+      return running.size;
+    },
+    start(actions) {
+      actions.filter((action) => !running.has(action.effectId)).forEach(launch);
+    },
+    async next() {
+      if (finished.length === 0 && running.size > 0) {
+        await Promise.race(running.values());
+        // Effects that finish in the same tick are recorded together, saving a replay.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      const done = finished.splice(0);
+      for (const commit of done) running.delete(commit.action.effectId);
+      return done;
+    },
+    async drain() {
+      await Promise.allSettled(running.values());
+      running.clear();
+      finished.length = 0;
+    },
+  };
+}

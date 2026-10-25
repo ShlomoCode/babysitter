@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { EffectAction } from "../../../../../types";
-import { dispatchEffectActions } from "../dispatch";
+import { createStreamingDispatcher, dispatchEffectActions } from "../dispatch";
 
 function makeAction(
   effectId: string,
@@ -186,5 +186,49 @@ describe("dispatchEffectActions", () => {
       { effectId: "ok", status: "ok", stderr: undefined },
       { effectId: "bad", status: "error", stderr: "boom" },
     ]);
+  });
+});
+
+describe("createStreamingDispatcher", () => {
+  test("returns a fast effect while a slow one keeps running", async () => {
+    const slow = deferred<{ status: "ok" }>();
+    const fast = deferred<{ status: "ok" }>();
+    const dispatcher = createStreamingDispatcher((action) =>
+      action.effectId === "slow" ? slow.promise : fast.promise,
+    );
+
+    dispatcher.start([makeAction("slow"), makeAction("fast")]);
+    fast.resolve({ status: "ok" });
+    const first = await dispatcher.next();
+
+    expect(first.map((commit) => commit.action.effectId)).toEqual(["fast"]);
+    expect(dispatcher.size).toBe(1);
+
+    // The replayed process asks for the running effect again; it must not start twice.
+    let starts = 0;
+    const counting = createStreamingDispatcher(async () => {
+      starts += 1;
+      return { status: "ok" };
+    });
+    counting.start([makeAction("a")]);
+    counting.start([makeAction("a")]);
+    await counting.next();
+    expect(starts).toBe(1);
+
+    slow.resolve({ status: "ok" });
+    expect((await dispatcher.next()).map((commit) => commit.action.effectId)).toEqual(["slow"]);
+    expect(dispatcher.size).toBe(0);
+  });
+
+  test("turns a thrown error into an error result", async () => {
+    const dispatcher = createStreamingDispatcher(async () => {
+      throw new Error("429 Too Many Requests");
+    });
+
+    dispatcher.start([makeAction("a")]);
+    const [commit] = await dispatcher.next();
+
+    expect(commit.result.status).toBe("error");
+    expect(commit.result.error?.message).toBe("429 Too Many Requests");
   });
 });
