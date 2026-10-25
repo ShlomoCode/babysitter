@@ -183,10 +183,9 @@ export async function runExternalOrchestrationPhase(args: RunOrchestrationPhaseA
         const iterationStartTime = Date.now();
         await dispatchEffectActions({
           actions: result.nextActions,
-          concurrentEffects: harnessSupportsConcurrentEffects(
-            args.selectedHarnessName,
-            args.discovered,
-          ),
+          concurrentEffects:
+            harnessSupportsConcurrentEffects(args.selectedHarnessName, args.discovered) ||
+            actionsRunInSeparateProcesses(result.nextActions, args),
           resolveAction: (action) => resolveExternalAction({
             action,
             args,
@@ -390,6 +389,19 @@ async function recordExternalRunSummary(
     startedAt: new Date().toISOString(),
     completedAt: new Date().toISOString(),
     outcome,
+  });
+}
+
+// Agent effects delegated to an installed CLI each run in their own process,
+// so they can run concurrently even when the orchestrating harness cannot.
+function actionsRunInSeparateProcesses(
+  actions: EffectAction[],
+  args: RunOrchestrationPhaseArgs,
+): boolean {
+  return actions.every((action) => {
+    if (action.kind !== "agent") return false;
+    const harness = resolveTaskHarness(action, args.selectedHarnessName, args.discovered);
+    return !isInternalHarness(harness) && harness !== "pi";
   });
 }
 
