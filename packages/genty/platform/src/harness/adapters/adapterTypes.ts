@@ -46,10 +46,11 @@ export interface AgentMuxRunOptions {
  */
 export interface AgentMuxRunHandle {
   /**
-   * Stream of normalised agent events. @a5c-ai/comm-adapter exposes it as an
-   * `events()` method on a handle that is itself async-iterable.
+   * Stream of normalised agent events. Some @a5c-ai/comm-adapter versions
+   * expose it as an `events()` method, others only make the handle itself
+   * async-iterable.
    */
-  events: AsyncIterable<AdapterAgentEvent> | (() => AsyncIterable<AdapterAgentEvent>);
+  events?: AsyncIterable<AdapterAgentEvent> | (() => AsyncIterable<AdapterAgentEvent>);
   /** Channel for responding to interactive requests (approvals, inputs). */
   interactions: AdapterInteractionChannel;
   /** Session ID allocated or resumed by adapters. */

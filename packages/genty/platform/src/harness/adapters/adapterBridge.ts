@@ -11,6 +11,7 @@
 
 import type { HarnessInvokeOptions, HarnessInvokeResult } from "../types";
 import type {
+  AdapterAgentEvent,
   AgentMuxClient,
   AgentMuxRunHandle,
 } from "./adapterTypes";
@@ -149,7 +150,10 @@ export async function invokeViaAgentMux(
   let hasError = false;
   const errorMessages: string[] = [];
 
-  const eventSource = typeof handle.events === "function" ? handle.events() : handle.events;
+  const eventSource: AsyncIterable<AdapterAgentEvent> =
+    typeof handle.events === "function"
+      ? handle.events()
+      : handle.events ?? (handle as unknown as AsyncIterable<AdapterAgentEvent>);
   for await (const rawEvent of eventSource) {
     const mapped = mapAmuxEvent(rawEvent);
     if (!mapped) continue;
