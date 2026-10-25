@@ -93,6 +93,15 @@ export type AdapterEventCallback = (event: BabysitterEvent) => void | Promise<vo
  * @throws {Error} if `harness` is "pi" / "internal" (use agent-core).
  * @throws {Error} if the harness has no adapters adapter mapping.
  */
+function errorMessageOf(data: Record<string, unknown>): string | undefined {
+  const error = data["error"];
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && typeof (error as Record<string, unknown>)["message"] === "string") {
+    return (error as Record<string, unknown>)["message"] as string;
+  }
+  return typeof data["message"] === "string" ? data["message"] : undefined;
+}
+
 export async function invokeViaAgentMux(
   client: AgentMuxClient,
   harness: string,
@@ -138,6 +147,7 @@ export async function invokeViaAgentMux(
   let lastMessage = "";
   let totalCost = 0;
   let hasError = false;
+  const errorMessages: string[] = [];
 
   const eventSource = typeof handle.events === "function" ? handle.events() : handle.events;
   for await (const rawEvent of eventSource) {
@@ -166,6 +176,8 @@ export async function invokeViaAgentMux(
     // Track errors
     if (isErrorEvent(mapped)) {
       hasError = true;
+      const message = errorMessageOf(mapped.data);
+      if (message) errorMessages.push(message);
     }
 
     // Forward to caller's live callback
@@ -175,11 +187,14 @@ export async function invokeViaAgentMux(
   }
 
   const duration = Date.now() - startTime;
+  // A failed run often prints no text; its error messages tell the caller why,
+  // and let retry policies see transient errors such as "429 Too Many Requests".
+  const failureText = hasError ? errorMessages.join("\n") : "";
   const exitCode = handle.exitCode ?? (hasError ? 1 : 0);
 
   return {
     success: exitCode === 0 && !hasError,
-    output: lastMessage.trim(),
+    output: [lastMessage.trim(), failureText].filter(Boolean).join("\n"),
     exitCode,
     duration,
     harness,
