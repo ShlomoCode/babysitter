@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as readline from "node:readline";
 import {
+  usageLimitResetAt,
   isUsageLimitError,
   isRetryableEffectError,
   buildBreakpointResult,
@@ -1217,9 +1218,14 @@ async function invokeSubprocessEffect(
   };
 }
 
-/** Waits for a subscription usage limit to reset: 24 waits of 15 minutes, six hours. */
-const USAGE_LIMIT_WAIT_MS = 15 * 60 * 1000;
-const USAGE_LIMIT_MAX_WAITS = 24;
+/**
+ * A usage limit is waited out until the reset time its message names (plus a
+ * margin), or in 15-minute steps when it names none, for up to seven days in
+ * all, which covers a weekly limit.
+ */
+const USAGE_LIMIT_POLL_MS = 15 * 60 * 1000;
+const USAGE_LIMIT_MARGIN_MS = 2 * 60 * 1000;
+const USAGE_LIMIT_MAX_TOTAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function resolveEffectWithRetry(
   action: EffectAction,
@@ -1257,7 +1263,7 @@ export async function resolveEffectWithRetry(
   }
   let lastResult: ResolveEffectResult | undefined;
   let currentPiSession = piSession;
-  let limitWaits = 0;
+  let limitWaitedMs = 0;
   for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
     try {
       lastResult = await resolveEffect(
@@ -1299,11 +1305,17 @@ export async function resolveEffectWithRetry(
     // A usage limit resets on a schedule (minutes to hours): wait it out with
     // long, separate retries instead of spending the short ones in a minute.
     const lastMessage = lastResult?.error instanceof Error ? lastResult.error.message : String(lastResult?.error ?? "");
-    if (isUsageLimitError(lastMessage) && limitWaits < USAGE_LIMIT_MAX_WAITS) {
-      limitWaits += 1;
+    if (isUsageLimitError(lastMessage) && limitWaitedMs < USAGE_LIMIT_MAX_TOTAL_MS) {
+      const resetAt = usageLimitResetAt(lastMessage);
+      const wait = resetAt
+        ? Math.max(60_000, resetAt.getTime() - Date.now() + USAGE_LIMIT_MARGIN_MS)
+        : USAGE_LIMIT_POLL_MS;
+      limitWaitedMs += wait;
       attempt -= 1;
-      process.stderr.write(`[babysitter] effect ${action.effectId ?? 'unknown'} hit a usage limit; waiting ${USAGE_LIMIT_WAIT_MS / 60000} min (${limitWaits}/${USAGE_LIMIT_MAX_WAITS})\n`);
-      await new Promise((resolve) => setTimeout(resolve, USAGE_LIMIT_WAIT_MS));
+      process.stderr.write(
+        `[babysitter] effect ${action.effectId ?? "unknown"} hit a usage limit; waiting until ${new Date(Date.now() + wait).toISOString()}${resetAt ? " (its reset time)" : ""}\n`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, wait));
       continue;
     }
     process.stderr.write(`[babysitter] effect ${action.effectId ?? action.taskDef?.id ?? 'unknown'} retry ${attempt + 1}/${config.maxRetries}: ${lastResult?.error instanceof Error ? lastResult.error.message : String(lastResult?.error ?? 'unknown')}\n`);

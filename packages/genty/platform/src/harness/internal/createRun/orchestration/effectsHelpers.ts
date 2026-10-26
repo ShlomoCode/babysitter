@@ -44,6 +44,38 @@ export function isRetryableEffectError(error: unknown): boolean {
   );
 }
 
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/**
+ * When a usage limit says it resets, in this machine's time zone:
+ * "resets 4:50am", "resets Oct 27, 3pm" (Claude), "try again at 5:23 PM" (Codex),
+ * "try again in 2 hours" or "in 45 minutes". Null when the message names no time.
+ */
+export function usageLimitResetAt(message: string, now: Date = new Date()): Date | null {
+  const relative = message.match(/(?:try again |resets )in (\d+)\s*(minute|min|hour|hr|day)s?/i);
+  if (relative) {
+    const n = Number(relative[1]);
+    const unit = relative[2].toLowerCase();
+    const ms = unit.startsWith("d") ? 86_400_000 : unit.startsWith("h") ? 3_600_000 : 60_000;
+    return new Date(now.getTime() + n * ms);
+  }
+  const at = message.match(
+    /(?:resets|try again at)\s+(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2}),?\s+(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i,
+  );
+  if (!at) return null;
+  let hour = Number(at[3]) % 12;
+  if (at[5].toLowerCase() === "pm") hour += 12;
+  const reset = new Date(now);
+  reset.setHours(hour, Number(at[4] ?? 0), 0, 0);
+  if (at[1]) {
+    reset.setMonth(MONTHS.indexOf(at[1].toLowerCase()), Number(at[2]));
+    if (reset.getTime() < now.getTime() - 86_400_000) reset.setFullYear(reset.getFullYear() + 1);
+  } else if (reset.getTime() <= now.getTime()) {
+    reset.setDate(reset.getDate() + 1);
+  }
+  return reset;
+}
+
 /** A subscription usage limit: it resets on a schedule, so it is worth a long wait. */
 export function isUsageLimitError(error: unknown): boolean {
   const message = typeof error === "string" ? error : error instanceof Error ? error.message : String(error);
