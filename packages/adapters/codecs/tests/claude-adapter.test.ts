@@ -484,6 +484,20 @@ describe('ClaudeAdapter', () => {
       expect(event.delta).toBe('Hello!');
     });
 
+    it('turns an API error message, such as a usage limit, into an error event with its text', () => {
+      const result = adapter.parseEvent(
+        JSON.stringify({
+          type: 'assistant',
+          error: 'rate_limit',
+          message: { content: [{ type: 'text', text: "You've hit your session limit · resets 4:50am" }] },
+        }),
+        makeContext(),
+      ) as { type: string; message: string };
+      // The caller retries on this text; "Agent crashed" alone gives it nothing to go on.
+      expect(result.type).toBe('error');
+      expect(result.message).toContain('hit your session limit');
+    });
+
     it('parses tool_use events', () => {
       const result = adapter.parseEvent(
         JSON.stringify({ type: 'tool_use', id: 'tc-1', name: 'read_file', input: { path: '/tmp/test.txt' } }),

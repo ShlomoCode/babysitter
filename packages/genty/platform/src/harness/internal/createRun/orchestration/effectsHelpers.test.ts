@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isRetryableEffectError, isUsageLimitError } from "./effectsHelpers";
 import {
   getHookDecisionResult,
   resolveHookDecisionResult,
@@ -101,5 +102,14 @@ describe("hook decision effect helpers", () => {
       },
       stderr: "hook stopped session",
     });
+  });
+});
+
+describe("usage limit errors", () => {
+  it("are retryable and recognised as a usage limit", () => {
+    const message = "You've hit your session limit · resets 4:50am (Asia/Hebron)\nAgent crashed";
+    expect(isUsageLimitError(message)).toBe(true);
+    expect(isRetryableEffectError(message)).toBe(true);
+    expect(isUsageLimitError("Agent crashed")).toBe(false);
   });
 });

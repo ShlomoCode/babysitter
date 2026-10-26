@@ -39,8 +39,15 @@ export function isRetryableEffectError(error: unknown): boolean {
     lower.includes("too many requests") || lower.includes("server had an error") ||
     lower.includes("temporarily unavailable") || lower.includes("please retry") ||
     lower.includes("killed") || lower.includes("signal") ||
-    lower.includes("already processing")
+    lower.includes("already processing") ||
+    isUsageLimitError(message)
   );
+}
+
+/** A subscription usage limit: it resets on a schedule, so it is worth a long wait. */
+export function isUsageLimitError(error: unknown): boolean {
+  const message = typeof error === "string" ? error : error instanceof Error ? error.message : String(error);
+  return /hit your (session|usage|weekly) limit|usage limit|limit reached/i.test(message);
 }
 
 export function buildBreakpointResult(

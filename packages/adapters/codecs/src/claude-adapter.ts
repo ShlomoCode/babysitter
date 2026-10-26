@@ -252,6 +252,19 @@ export class ClaudeAdapter extends BaseAgentAdapter {
       } as AgentEvent;
     }
 
+    // An API error, such as a usage limit, arrives as an assistant message marked
+    // with an error, or as a final result with is_error. Without these branches
+    // its text is dropped and the caller only sees "Agent crashed".
+    const message = obj['message'] as Record<string, unknown> | undefined
+    if (type === 'assistant' && typeof obj['error'] === 'string') {
+      const parts = Array.isArray(message?.['content']) ? (message?.['content'] as Array<Record<string, unknown>>) : []
+      const text = parts.map((p) => (typeof p['text'] === 'string' ? p['text'] : '')).join(' ').trim()
+      return { ...base, type: 'error', code: 'INTERNAL' as const, message: text || String(obj['error']), recoverable: false } as AgentEvent;
+    }
+    if (type === 'result' && obj['is_error'] === true && typeof obj['result'] === 'string') {
+      return { ...base, type: 'error', code: 'INTERNAL' as const, message: obj['result'] as string, recoverable: false } as AgentEvent;
+    }
+
     if (type === 'assistant' || type === 'text') {
       const content = (obj['content'] ?? obj['text'] ?? '') as string;
       if (content) {

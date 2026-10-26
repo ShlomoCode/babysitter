@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as readline from "node:readline";
 import {
+  isUsageLimitError,
   isRetryableEffectError,
   buildBreakpointResult,
   invokePromptEffect,
@@ -1216,6 +1217,10 @@ async function invokeSubprocessEffect(
   };
 }
 
+/** Waits for a subscription usage limit to reset: 24 waits of 15 minutes, six hours. */
+const USAGE_LIMIT_WAIT_MS = 15 * 60 * 1000;
+const USAGE_LIMIT_MAX_WAITS = 24;
+
 export async function resolveEffectWithRetry(
   action: EffectAction,
   harnessName: string,
@@ -1252,6 +1257,7 @@ export async function resolveEffectWithRetry(
   }
   let lastResult: ResolveEffectResult | undefined;
   let currentPiSession = piSession;
+  let limitWaits = 0;
   for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
     try {
       lastResult = await resolveEffect(
@@ -1289,6 +1295,16 @@ export async function resolveEffectWithRetry(
         status: "error",
         error: error instanceof Error ? error : new Error(String(error)),
       };
+    }
+    // A usage limit resets on a schedule (minutes to hours): wait it out with
+    // long, separate retries instead of spending the short ones in a minute.
+    const lastMessage = lastResult?.error instanceof Error ? lastResult.error.message : String(lastResult?.error ?? "");
+    if (isUsageLimitError(lastMessage) && limitWaits < USAGE_LIMIT_MAX_WAITS) {
+      limitWaits += 1;
+      attempt -= 1;
+      process.stderr.write(`[babysitter] effect ${action.effectId ?? 'unknown'} hit a usage limit; waiting ${USAGE_LIMIT_WAIT_MS / 60000} min (${limitWaits}/${USAGE_LIMIT_MAX_WAITS})\n`);
+      await new Promise((resolve) => setTimeout(resolve, USAGE_LIMIT_WAIT_MS));
+      continue;
     }
     process.stderr.write(`[babysitter] effect ${action.effectId ?? action.taskDef?.id ?? 'unknown'} retry ${attempt + 1}/${config.maxRetries}: ${lastResult?.error instanceof Error ? lastResult.error.message : String(lastResult?.error ?? 'unknown')}\n`);
     const baseDelay = EFFECT_RETRY_DELAYS_OVERRIDE
